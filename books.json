@@ -1,0 +1,35 @@
+[
+  {
+    "id": "psyco1",
+    "title": "Getting to Yes",
+    "author": "Roger Fisher",
+    "file": "books/psyco1.md",
+    "tags": [
+      "psyche",
+      "book",
+      "behavior"
+    ]
+  },
+  {
+    "id": "robert_greene",
+    "title": "Las Leyes de la Naturaleza Humana",
+    "author": "Robert Greene",
+    "file": "books/robert_greene.md",
+    "tags": [
+      "psyche",
+      "book",
+      "behavior"
+    ]
+  },
+  {
+    "id": "habitos_atomicos",
+    "title": "Hábitos Atómicos",
+    "author": "James Clear",
+    "file": "books/habitos_atomicos.md",
+    "tags": [
+      "productivity",
+      "habits",
+      "discipline"
+    ]
+  }
+]

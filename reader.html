@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lecturas">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Resúmenes de libros al estilo TikTok">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <title>Lector | TikTok Reader</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700&family=Lora:ital,wght@0,400;0,700;1,400&display=swap"
+        rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+
+<body>
+    <a href="index.html" class="back-button">← R</a>
+
+    <main id="reader" class="reader-container">
+        <div class="loading" style="padding: 100px; text-align: center;">Cargando resumen...</div>
+    </main>
+
+    <div class="bottom-nav" id="bottom-nav">
+        <div class="nav-header" id="nav-chapter-name">Cargando...</div>
+        <div class="nav-dots-container" id="nav-dots"></div>
+    </div>
+
+    <!-- Chapter Picker Overlay -->
+    <div class="chapter-picker" id="chapter-picker">
+        <div class="picker-content" id="picker-list">
+            <h3 style="margin-bottom: 1.5rem; text-align: center;">Seleccionar Capítulo</h3>
+            <!-- Chapters list -->
+        </div>
+    </div>
+
+    <div class="scroll-indicator" id="scroll-hint">↓</div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const bookId = urlParams.get('book');
+            const reader = document.getElementById('reader');
+
+            if (!bookId) {
+                reader.innerHTML = '<div class="page"><div class="page-content">Libro no encontrado.</div></div>';
+                return;
+            }
+
+            try {
+                // Fetch book registry to get file path (with cache busting)
+                const registryResponse = await fetch(`books.json?t=${Date.now()}`);
+                const books = await registryResponse.json();
+                const bookData = books.find(b => b.id === bookId);
+
+                if (!bookData) throw new Error('Libro no registrado');
+
+                // Fetch the actual markdown file
+                const response = await fetch(bookData.file);
+                const content = await response.text();
+
+                // Simple parser for YAML frontmatter
+                let md = content;
+                let meta = {};
+                if (content.startsWith('---')) {
+                    const parts = content.split('---');
+                    if (parts.length >= 3) {
+                        try {
+                            meta = jsyaml.load(parts[1]);
+                            md = parts.slice(2).join('---').trim();
+                        } catch (e) {
+                            console.error('Error parsing YAML', e);
+                        }
+                    }
+                }
+
+                // Clear loader
+                reader.innerHTML = '';
+
+                // Add Meta Page (Title & Author)
+                const metaPage = document.createElement('div');
+                metaPage.className = 'page meta';
+                metaPage.innerHTML = `
+                    <div class="page-content">
+                        <h2>${meta.title || bookData.title}</h2>
+                        <p class="author">por ${meta.author || bookData.author}</p>
+                        <p style="font-size: 0.9rem; margin-top: 2rem; opacity: 0.5;">Desliza para empezar ↑</p>
+                    </div>
+                `;
+                reader.appendChild(metaPage);
+
+                // --- NEW PARSING LOGIC (Chapters & Pages) ---
+                // Split chapters using 3 or more dashes
+                let chapterBlocks = md.split(/\n-{3,}\s/);
+
+                // --- RENDER TABLE OF CONTENTS (Page 2 Placeholder) ---
+                const indexPage = document.createElement('div');
+                indexPage.className = 'page index';
+                indexPage.id = 'toc-page';
+                reader.appendChild(indexPage);
+
+                // --- RENDER ALL CONTENT PAGES ---
+                const allSections = []; // Track metadata for each page for nav logic
+
+                // Add Meta and Index to our tracking
+                allSections.push({ title: 'Portada', chapterNum: 0 });
+                allSections.push({ title: 'Índice', chapterNum: 0 });
+
+                // Split chapters into pages
+                chapterBlocks.forEach((block, bIdx) => {
+                    const lines = block.trim().split('\n');
+                    let title = 'Introducción';
+                    let content = block;
+
+                    if (bIdx > 0) {
+                        title = lines[0].trim() || `Capítulo ${bIdx}`;
+                        content = lines.slice(1).join('\n');
+
+                        // Add Chapter Intro Page
+                        const introPage = document.createElement('div');
+                        introPage.className = 'page chapter-intro';
+                        introPage.innerHTML = `<div class="page-content"><h2>${title}</h2></div>`;
+                        reader.appendChild(introPage);
+                        allSections.push({ title: title, chapterNum: bIdx });
+                    }
+
+                    const rawPages = content.split('>>').filter(s => s.trim().length > 0);
+                    rawPages.forEach(rawP => {
+                        const mixedParts = rawP.split(/\n(?=\+)/);
+                        mixedParts.forEach((part) => {
+                            let text = part.trim();
+                            if (text.startsWith('+')) {
+                                // Render as quiz
+                                const lines = text.split('\n');
+                                const question = lines[0].substring(1).trim();
+                                let options = [];
+                                for (let i = 1; i < lines.length; i++) {
+                                    let l = lines[i].trim();
+                                    if (l.startsWith('--') || l.startsWith('-0-')) {
+                                        let isCorrect = l.startsWith('-0-');
+                                        let rest = l.substring(isCorrect ? 3 : 2).trim();
+                                        let colonIdx = rest.indexOf(':');
+                                        let optText = rest;
+                                        let explanation = '';
+                                        if (colonIdx !== -1) {
+                                            optText = rest.substring(0, colonIdx).trim();
+                                            explanation = rest.substring(colonIdx + 1).trim();
+                                        }
+                                        options.push({text: optText, explanation: explanation, isCorrect: isCorrect});
+                                    }
+                                }
+                                
+                                // Shuffle options
+                                for (let i = options.length - 1; i > 0; i--) {
+                                    const j = Math.floor(Math.random() * (i + 1));
+                                    [options[i], options[j]] = [options[j], options[i]];
+                                }
+                                
+                                const page = document.createElement('div');
+                                page.className = 'page quiz-page';
+                                
+                                let optsHtml = options.map(opt => `
+                                    <div class="quiz-option" onclick="window.handleQuizClick(this, ${opt.isCorrect}, '${opt.explanation.replace(/'/g, "\\'")}')">
+                                        ${opt.text}
+                                    </div>
+                                `).join('');
+
+                                page.innerHTML = `
+                                    <div class="page-content" style="display:flex;flex-direction:column;justify-content:center;height:100%;width:100%;max-width:500px;">
+                                        <h3 class="quiz-question" style="margin-bottom:1.5rem;font-size:1.15rem;font-weight:700;line-height:1.3;">${question}</h3>
+                                        <div class="quiz-options" style="display:flex;flex-direction:column;gap:0.5rem;">
+                                            ${optsHtml}
+                                        </div>
+                                        <div class="quiz-feedback" style="display:none;margin-top:1rem;padding:1rem;background:rgba(255,255,255,0.05);border-radius:12px;border:1px solid rgba(255,255,255,0.1);">
+                                            <p class="quiz-explanation" style="margin-bottom:0.5rem;font-size:0.85rem;line-height:1.4;"></p>
+                                            <button class="quiz-retry-btn" onclick="window.resetQuiz(this)">Reintentar</button>
+                                        </div>
+                                    </div>
+                                `;
+                                reader.appendChild(page);
+                                allSections.push({ title: title + " - Quiz", chapterNum: bIdx });
+                            } else {
+                                if (text.length > 0) {
+                                    const page = document.createElement('div');
+                                    page.className = 'page';
+                                    const rendered = marked.parse(text);
+                                    page.innerHTML = `<div class="page-content">${rendered}</div>`;
+                                    reader.appendChild(page);
+                                    allSections.push({ title: title, chapterNum: bIdx });
+                                }
+                            }
+                        });
+                    });
+                });
+
+                // --- QUIZ LOGIC ---
+                window.handleQuizClick = function(el, isCorrect, explanation) {
+                    const pageContent = el.closest('.page-content');
+                    const optionsContainer = pageContent.querySelector('.quiz-options');
+                    const feedback = pageContent.querySelector('.quiz-feedback');
+                    const expText = pageContent.querySelector('.quiz-explanation');
+                    const retryBtn = pageContent.querySelector('.quiz-retry-btn');
+                    
+                    const allOpts = optionsContainer.querySelectorAll('.quiz-option');
+                    allOpts.forEach(opt => opt.style.pointerEvents = 'none');
+                    
+                    if (isCorrect) {
+                        el.classList.add('correct');
+                        expText.innerHTML = `<strong>¡Correcto!</strong><br/><br/>${explanation}`;
+                        expText.style.color = '#4ade80';
+                        retryBtn.style.display = 'inline-block';
+                        feedback.style.display = 'block';
+                    } else {
+                        el.classList.add('incorrect');
+                        expText.innerHTML = `<strong>Incorrecto:</strong><br/><br/>${explanation}`;
+                        expText.style.color = '#f87171';
+                        retryBtn.style.display = 'inline-block';
+                        feedback.style.display = 'block';
+                    }
+                };
+
+                window.resetQuiz = function(btn) {
+                    const pageContent = btn.closest('.page-content');
+                    const optionsContainer = pageContent.querySelector('.quiz-options');
+                    const feedback = pageContent.querySelector('.quiz-feedback');
+                    
+                    const allOpts = optionsContainer.querySelectorAll('.quiz-option');
+                    allOpts.forEach(opt => {
+                        opt.style.pointerEvents = 'auto';
+                        opt.classList.remove('correct', 'incorrect');
+                    });
+                    
+                    feedback.style.display = 'none';
+                };
+
+                // --- POPULATE TABLE OF CONTENTS (Once indices are certain) ---
+                function updateTOC() {
+                    const visited = JSON.parse(localStorage.getItem(`visited_pages_${bookId}`) || '[]');
+                    const actualChapters = [];
+                    allSections.forEach((s, idx) => {
+                        if (s.chapterNum > 0 && (idx === 0 || s.chapterNum !== allSections[idx - 1].chapterNum)) {
+                            // Find all pages belonging to this chapter
+                            const chapterPages = allSections.map((sec, i) => sec.chapterNum === s.chapterNum ? i : null).filter(n => n !== null);
+                            const isFinished = chapterPages.every(pIdx => visited.includes(pIdx));
+                            actualChapters.push({ title: s.title, index: idx, finished: isFinished, chNum: s.chapterNum });
+                        }
+                    });
+
+                    let gridHtml = actualChapters.map((ch, i) => `
+                        <div class="chapter-card ${ch.finished ? 'read' : ''}" data-chapter="${ch.chNum}" onclick="document.querySelectorAll('.page')[${ch.index}].scrollIntoView({behavior:'smooth'})">
+                            <div class="num">Cap. ${i + 1}</div>
+                            <div class="name">${ch.title}</div>
+                        </div>
+                    `).join('');
+
+                    indexPage.innerHTML = `
+                        <h2 class="index-title">Índice</h2>
+                        <div class="index-separator"></div>
+                        <div class="chapter-grid">${gridHtml}</div>
+                    `;
+                }
+                updateTOC();
+
+                const bottomNav = document.getElementById('bottom-nav');
+                const dotsContainer = document.getElementById('nav-dots');
+                const chapterLabel = document.getElementById('nav-chapter-name');
+                const picker = document.getElementById('chapter-picker');
+                const pickerList = document.getElementById('picker-list');
+
+                let hideTimeout;
+
+                function toggleNav() {
+                    const backBtn = document.querySelector('.back-button');
+                    const isVisible = bottomNav.classList.contains('visible');
+
+                    if (isVisible) {
+                        bottomNav.classList.remove('visible');
+                        if (backBtn) backBtn.classList.remove('visible');
+                        clearTimeout(hideTimeout);
+                    } else {
+                        bottomNav.classList.add('visible');
+                        if (backBtn) backBtn.classList.add('visible');
+
+                        clearTimeout(hideTimeout);
+                        hideTimeout = setTimeout(() => {
+                            bottomNav.classList.remove('visible');
+                            if (backBtn) backBtn.classList.remove('visible');
+                        }, 4000);
+                    }
+                }
+
+                // Setup Chapter Picker
+                chapterLabel.onclick = (e) => {
+                    e.stopPropagation();
+                    picker.classList.add('visible');
+                };
+
+                picker.onclick = () => picker.classList.remove('visible');
+
+                // Populate Picker
+                const chaptersMeta = [{ title: 'Portada', index: 0 }, { title: 'Índice', index: 1 }];
+                allSections.forEach((s, idx) => {
+                    if (idx === 0 || s.chapterNum !== allSections[Math.max(0, idx - 1)].chapterNum) {
+                        if (idx > 1) chaptersMeta.push({ title: s.title, index: idx });
+                    }
+                });
+
+                chaptersMeta.forEach(ch => {
+                    const item = document.createElement('div');
+                    item.className = 'picker-item';
+                    item.innerText = ch.title;
+                    item.onclick = (e) => {
+                        e.stopPropagation();
+                        reader.children[ch.index].scrollIntoView({ behavior: 'smooth' });
+                        picker.classList.remove('visible');
+                    };
+                    pickerList.appendChild(item);
+                });
+
+                // Reader Click Listener
+                reader.onclick = () => {
+                    const scrollPos = reader.scrollTop;
+                    const vh = window.innerHeight;
+                    const activeIndex = Math.round(scrollPos / vh);
+                    const currentPage = reader.children[activeIndex];
+                    
+                    if (currentPage && currentPage.classList.contains('quiz-page')) {
+                        return; // Ignorar en páginas de quiz
+                    }
+                    toggleNav();
+                };
+
+                // ❤ Double-click to love a page
+                reader.addEventListener('dblclick', (e) => {
+                    const scrollPos = reader.scrollTop;
+                    const vh = window.innerHeight;
+                    const activeIndex = Math.round(scrollPos / vh);
+
+                    // Get text preview from current page
+                    const currentPage = reader.children[activeIndex];
+                    const textPreview = currentPage
+                        ? (currentPage.innerText || '').trim()
+                        : '';
+
+                    // Save to localStorage
+                    const lovedKey = `loved_pages_${bookId}`;
+                    let loved = JSON.parse(localStorage.getItem(lovedKey) || '[]');
+                    const alreadyLoved = loved.find(l => l.index === activeIndex);
+                    if (!alreadyLoved) {
+                        loved.push({
+                            index: activeIndex,
+                            preview: textPreview,
+                            chapter: allSections[activeIndex]?.title || '',
+                            bookId,
+                            bookTitle: meta.title || bookData.title
+                        });
+                        localStorage.setItem(lovedKey, JSON.stringify(loved));
+                    }
+
+                    // Show heart burst animation
+                    const heart = document.createElement('div');
+                    heart.className = 'heart-burst';
+                    heart.textContent = '♡';
+                    document.body.appendChild(heart);
+                    setTimeout(() => heart.remove(), 750);
+
+                    // Refresh nav dots to show green
+                    reader.dispatchEvent(new Event('scroll'));
+                });
+
+                // Scroll Listener
+                reader.onscroll = () => {
+                    const scrollPos = reader.scrollTop;
+                    const vh = window.innerHeight;
+                    const activeIndex = Math.round(scrollPos / vh);
+                    const currentSection = allSections[activeIndex];
+
+                    if (!currentSection) return;
+
+                    // Update Progress (visited pages)
+                    let visited = JSON.parse(localStorage.getItem(`visited_pages_${bookId}`) || '[]');
+                    if (!visited.includes(activeIndex)) {
+                        visited.push(activeIndex);
+                        localStorage.setItem(`visited_pages_${bookId}`, JSON.stringify(visited));
+                        updateTOC(); // Refresh the index grid
+                    }
+
+                    // Update Title
+                    chapterLabel.innerText = currentSection.title;
+
+                    // Update Dots: Only show dots for current chapter
+                    dotsContainer.innerHTML = '';
+                    visited = JSON.parse(localStorage.getItem(`visited_pages_${bookId}`) || '[]');
+                    const loved = JSON.parse(localStorage.getItem(`loved_pages_${bookId}`) || '[]');
+                    const lovedIndices = loved.map(l => l.index);
+
+                    allSections.forEach((s, idx) => {
+                        if (s.chapterNum === currentSection.chapterNum) {
+                            const dot = document.createElement('div');
+                            const isRead = visited.includes(idx);
+                            const isLoved = lovedIndices.includes(idx);
+
+                            let cls = 'nav-dot';
+                            if (idx === activeIndex) cls += ' active';
+                            else if (isLoved) cls += ' loved read';
+                            else if (isRead) cls += ' read';
+
+                            dot.className = cls;
+                            dot.onclick = (e) => {
+                                e.stopPropagation();
+                                reader.children[idx].scrollIntoView({ behavior: 'smooth' });
+                                showNav();
+                            };
+                            dotsContainer.appendChild(dot);
+                        }
+                    });
+
+                    // Hide scroll hint if moved
+                    if (scrollPos > 100) {
+                        document.getElementById('scroll-hint').style.opacity = '0';
+                    } else {
+                        document.getElementById('scroll-hint').style.opacity = '0.5';
+                    }
+                };
+
+                // Initial trigger
+                reader.dispatchEvent(new Event('scroll'));
+
+                // — Handle specific page from URL —
+                const pageParam = urlParams.get('page');
+                if (pageParam !== null) {
+                    const targetIdx = parseInt(pageParam);
+                    if (reader.children[targetIdx]) {
+                        setTimeout(() => {
+                            reader.children[targetIdx].scrollIntoView({ behavior: 'smooth' });
+                        }, 500); // Pequeño delay para asegurar que el render terminó
+                    }
+                }
+
+                // Set Page Title
+                document.title = `${meta.title || bookData.title} | TikTok Reader`;
+
+                // --- GESTURE NAVIGATION ---
+                let touchStartX = 0;
+                let touchStartY = 0;
+                let isPotentialSwipe = false;
+                const swipeThreshold = 60;
+
+                document.addEventListener('touchstart', (e) => {
+                    touchStartX = e.changedTouches[0].screenX;
+                    touchStartY = e.changedTouches[0].screenY;
+                    // Detect gesture start from left side
+                    isPotentialSwipe = touchStartX < window.innerWidth * 0.3;
+                }, { passive: false });
+
+                document.addEventListener('touchmove', (e) => {
+                    if (!isPotentialSwipe) return;
+                    
+                    const touchCurrentX = e.changedTouches[0].screenX;
+                    const touchCurrentY = e.changedTouches[0].screenY;
+                    const dx = touchCurrentX - touchStartX;
+                    const dy = touchCurrentY - touchStartY;
+
+                    // If moving right and horizontal > vertical
+                    if (dx > 10 && Math.abs(dx) > Math.abs(dy)) {
+                        if (e.cancelable) e.preventDefault(); // Block native back
+                    }
+                }, { passive: false });
+
+                document.addEventListener('touchend', (e) => {
+                    if (!isPotentialSwipe) return;
+                    
+                    const touchEndX = e.changedTouches[0].screenX;
+                    const touchEndY = e.changedTouches[0].screenY;
+                    const dx = touchEndX - touchStartX;
+                    const dy = touchEndY - touchStartY;
+
+                    if (dx > swipeThreshold && Math.abs(dy) < 80) {
+                        // Navegación inmediata
+                        window.location.href = 'index.html';
+                    }
+                    isPotentialSwipe = false;
+                }, { passive: false });
+
+            } catch (error) {
+                reader.innerHTML = `<div class="page">
+                    <div class="page-content">
+                    Error al cargar el contenido: ${error.message}
+                    </div>
+                </div>`;
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lecturas">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Resúmenes de libros clave">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <title>Mis Lecturas | TikTok Reader</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700&family=Lora:ital,wght@0,400;0,700;1,400&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Mis Lecturas</h1>
+            <p>Una colección de resúmenes de libros clave, listos para tu próxima reflexión.</p>
+        </header>
+
+        <main id="book-list" class="book-list">
+            <!-- Books will be loaded here -->
+            <div class="loading">Cargando libros...</div>
+        </main>
+
+        <section class="saved-section" id="saved-section" style="display:none">
+            <h2>🧡 Páginas guardadas</h2>
+            <div class="saved-list" id="saved-list"></div>
+        </section>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="preview-modal" id="preview-modal">
+        <div class="preview-content">
+            <div class="preview-header">
+                <span class="book-title" id="pm-book"></span>
+                <span class="chapter-title" id="pm-chapter"></span>
+            </div>
+            <div class="preview-text" id="pm-text"></div>
+            <div class="preview-footer">
+                <button class="close-preview" id="pm-close">Cerrar</button>
+                <a href="#" class="go-to-book" id="pm-link">Ir al libro completo →</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Side Drawer -->
+    <div class="drawer-overlay" id="drawer-overlay"></div>
+    <div class="side-drawer" id="side-drawer">
+        <div class="drawer-header">
+            <h2>Menú</h2>
+        </div>
+        <div class="drawer-menu">
+            <button class="drawer-item" id="btn-books">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                Ver Libros
+            </button>
+            <button class="drawer-item" id="btn-favorites">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                Páginas Favoritas
+            </button>
+            <button class="drawer-item danger" id="btn-clear-history">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                Borrar Historial Leído
+            </button>
+        </div>
+        <div class="drawer-footer">
+            TikTok Reader v1.2
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const listContainer = document.getElementById('book-list');
+            try {
+                const response = await fetch(`books.json?t=${Date.now()}`);
+                const books = await response.json();
+
+                listContainer.innerHTML = '';
+                books.forEach(book => {
+                    const card = document.createElement('a');
+                    card.href = `reader.html?book=${book.id}`;
+                    card.className = 'book-card';
+
+                    const tagsHtml = book.tags ? book.tags.map(t => `<span class="tag">${t}</span>`).join('') : '';
+
+                    card.innerHTML = `
+                        <h3>${book.title}</h3>
+                        <p>${book.author}</p>
+                        <div class="tags">${tagsHtml}</div>
+                    `;
+                    listContainer.appendChild(card);
+                });
+            } catch (error) {
+                listContainer.innerHTML = '<p>Error al cargar los libros. Por favor inténtalo de nuevo.</p>';
+                console.error(error);
+            }
+
+            // — Load saved (loved) pages from localStorage —
+            function renderSaved() {
+                const savedSection = document.getElementById('saved-section');
+                const savedList = document.getElementById('saved-list');
+                savedList.innerHTML = '';
+
+                // Collect all loved_pages_* keys
+                const allLoved = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('loved_pages_')) {
+                        const pages = JSON.parse(localStorage.getItem(key) || '[]');
+                        const bookId = key.replace('loved_pages_', '');
+                        pages.forEach(p => allLoved.push({ ...p, bookId, key }));
+                    }
+                }
+
+                if (allLoved.length === 0) {
+                    savedSection.style.display = 'none';
+                    return;
+                }
+
+                savedSection.style.display = '';
+
+                allLoved.forEach((item, i) => {
+                    const card = document.createElement('div');
+                    card.className = 'saved-card';
+                    card.innerHTML = `
+                        <span class="heart-icon">♡</span>
+                        <div class="saved-info">
+                            <span class="saved-book">${item.bookTitle || item.bookId} — ${item.chapter || ''}</span>
+                            <span class="saved-preview">${item.preview || 'Página guardada'}</span>
+                        </div>
+                        <button class="saved-remove" data-key="${item.key}" data-index="${item.index}" title="Eliminar">✕</button>
+                    `;
+
+                    // Click card → open preview modal
+                    card.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('saved-remove')) return;
+                        
+                        const modal = document.getElementById('preview-modal');
+                        document.getElementById('pm-book').innerText = item.bookTitle || item.bookId;
+                        document.getElementById('pm-chapter').innerText = item.chapter || 'Nota';
+                        document.getElementById('pm-text').innerText = item.preview || '';
+                        document.getElementById('pm-link').href = `reader.html?book=${item.bookId}&page=${item.index}`;
+                        
+                        modal.classList.add('visible');
+                    });
+
+                    // Remove button
+                    card.querySelector('.saved-remove').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const key = e.target.dataset.key;
+                        const idx = parseInt(e.target.dataset.index);
+                        let pages = JSON.parse(localStorage.getItem(key) || '[]');
+                        pages = pages.filter(p => p.index !== idx);
+                        localStorage.setItem(key, JSON.stringify(pages));
+                        renderSaved();
+                    });
+
+                    savedList.appendChild(card);
+                });
+            }
+
+            renderSaved();
+
+            // Modal Close Logic
+            const modal = document.getElementById('preview-modal');
+            const closeBtn = document.getElementById('pm-close');
+            
+            closeBtn.onclick = () => modal.classList.remove('visible');
+            modal.onclick = (e) => {
+                if (e.target === modal) modal.classList.remove('visible');
+            };
+
+            // --- DRAWER & GESTURES ---
+            const overlay = document.getElementById('drawer-overlay');
+            const drawer = document.getElementById('side-drawer');
+            
+            function toggleDrawer(show) {
+                if (show) {
+                    overlay.classList.add('active');
+                    drawer.classList.add('active');
+                } else {
+                    overlay.classList.remove('active');
+                    drawer.classList.remove('active');
+                }
+            }
+
+            overlay.onclick = () => toggleDrawer(false);
+
+            // Menu actions
+            document.getElementById('btn-books').onclick = () => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                toggleDrawer(false);
+            };
+
+            document.getElementById('btn-favorites').onclick = () => {
+                const favSection = document.getElementById('saved-section');
+                if (favSection) favSection.scrollIntoView({ behavior: 'smooth' });
+                toggleDrawer(false);
+            };
+
+            document.getElementById('btn-clear-history').onclick = () => {
+                // Find all visited_pages_* keys and remove them
+                const keysToRemove = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('visited_pages_')) {
+                        keysToRemove.push(key);
+                    }
+                }
+                keysToRemove.forEach(k => localStorage.removeItem(k));
+                
+                // Visual feedback without blocking
+                const btn = document.getElementById('btn-clear-history');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '¡Borrado!';
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    toggleDrawer(false);
+                }, 1000);
+            };
+
+            // Swipe Detection
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let isPotentialSwipe = false;
+            const swipeThreshold = 50;
+
+            document.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+                touchStartY = e.changedTouches[0].screenY;
+                isPotentialSwipe = touchStartX < window.innerWidth * 0.25; // Solo desde el borde izquierdo
+            }, { passive: false });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!isPotentialSwipe) return;
+
+                const touchCurrentX = e.changedTouches[0].screenX;
+                const touchCurrentY = e.changedTouches[0].screenY;
+                const dx = touchCurrentX - touchStartX;
+                const dy = touchCurrentY - touchStartY;
+
+                // Si estamos deslizando horizontalmente hacia la derecha
+                if (dx > 10 && Math.abs(dx) > Math.abs(dy)) {
+                    // Bloqueamos la navegación nativa del navegador
+                    if (e.cancelable) e.preventDefault();
+                }
+            }, { passive: false });
+
+            document.addEventListener('touchend', (e) => {
+                if (!isPotentialSwipe) return;
+                if (drawer.classList.contains('active')) return;
+
+                const touchEndX = e.changedTouches[0].screenX;
+                const touchEndY = e.changedTouches[0].screenY;
+                const dx = touchEndX - touchStartX;
+                const dy = touchEndY - touchStartY;
+
+                if (dx > swipeThreshold && Math.abs(dy) < 80) {
+                    toggleDrawer(true);
+                }
+                isPotentialSwipe = false;
+            }, { passive: false });
+        });
+    </script>
+</body>
+</html>
