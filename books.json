@@ -9,5 +9,27 @@
       "book",
       "behavior"
     ]
+  },
+  {
+    "id": "moby",
+    "title": "Moby Dick",
+    "author": "Herman Melville",
+    "file": "books/moby.md",
+    "tags": [
+      "classic",
+      "book",
+      "adventure"
+    ]
+  },
+  {
+    "id": "darkpersuation",
+    "title": "The black book of Dark Persuasion",
+    "author": "Alejandro llantada",
+    "file": "books/darkpersuation.md",
+    "tags": [
+      "psyche",
+      "book",
+      "behavior"
+    ]
   }
 ]
